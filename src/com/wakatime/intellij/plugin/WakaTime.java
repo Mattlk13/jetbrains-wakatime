@@ -9,9 +9,9 @@ Website:     https://wakatime.com/
 package com.wakatime.intellij.plugin;
 
 import com.intellij.AppTopics;
+import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.plugins.PluginManager;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ApplicationComponent;
@@ -21,10 +21,15 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.wm.StatusBar;
+import com.intellij.openapi.wm.WindowManager;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.messages.MessageBus;
 import com.intellij.util.messages.MessageBusConnection;
@@ -55,6 +60,8 @@ public class WakaTime implements ApplicationComponent {
     public static String IDE_VERSION;
     public static MessageBusConnection connection;
     public static Boolean DEBUG = false;
+    public static Boolean DEBUG_CHECKED = false;
+    public static Boolean STATUS_BAR = false;
     public static Boolean READY = false;
     public static String lastFile = null;
     public static BigDecimal lastTime = new BigDecimal(0);
@@ -68,7 +75,13 @@ public class WakaTime implements ApplicationComponent {
     }
 
     public void initComponent() {
-        VERSION = PluginManager.getPlugin(PluginId.getId("com.wakatime.intellij.plugin")).getVersion();
+        try {
+            // support older IDE versions with deprecated PluginManager
+            VERSION = PluginManager.getPlugin(PluginId.getId("com.wakatime.intellij.plugin")).getVersion();
+        } catch (Exception e) {
+            // use PluginManagerCore if PluginManager deprecated
+            VERSION = PluginManagerCore.getPlugin(PluginId.getId("com.wakatime.intellij.plugin")).getVersion();
+        }
         log.info("Initializing WakaTime plugin v" + VERSION + " (https://wakatime.com/)");
         //System.out.println("Initializing WakaTime plugin v" + VERSION + " (https://wakatime.com/)");
 
@@ -77,22 +90,20 @@ public class WakaTime implements ApplicationComponent {
         IDE_VERSION = ApplicationInfo.getInstance().getFullVersion();
 
         setupDebugging();
+        setupStatusBar();
         setLoggingLevel();
         Dependencies.configureProxy();
         checkApiKey();
-        setupMenuItem();
         checkCli();
         setupEventListeners();
         setupQueueProcessor();
-        checkDebug();
-        log.info("Finished initializing WakaTime plugin");
     }
 
     private void checkCli() {
         ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
             public void run() {
                 if (!Dependencies.isCLIInstalled()) {
-                    log.info("Downloading and installing wakatime-cli ...");
+                    log.info("Downloading and installing wakatime-cli...");
                     Dependencies.installCLI();
                     WakaTime.READY = true;
                     log.info("Finished downloading and installing wakatime-cli.");
@@ -105,7 +116,7 @@ public class WakaTime implements ApplicationComponent {
                     WakaTime.READY = true;
                     log.info("wakatime-cli is up to date.");
                 }
-                log.debug("CLI location: " + Dependencies.getCLILocation());
+                log.debug("wakatime-cli location: " + Dependencies.getCLILocation());
             }
         });
     }
@@ -158,27 +169,13 @@ public class WakaTime implements ApplicationComponent {
         scheduledFixture = scheduler.scheduleAtFixedRate(handler, delay, delay, java.util.concurrent.TimeUnit.SECONDS);
     }
 
-    private void setupMenuItem() {
-        ApplicationManager.getApplication().invokeLater(new Runnable(){
-            public void run() {
-                ActionManager am = ActionManager.getInstance();
-                PluginMenu action = new PluginMenu();
-                action.getTemplatePresentation().setEnabled(false);
-                am.registerAction("WakaTimeApiKey", action);
-                DefaultActionGroup menu = (DefaultActionGroup) am.getAction("ToolsMenu");
-                menu.addSeparator();
-                menu.add(action);
-                action.getTemplatePresentation().setEnabled(true);
-            }
-        });
-    }
-
-    private void checkDebug() {
-        if (WakaTime.DEBUG) {
-            try {
-                Messages.showWarningDialog("Running WakaTime in DEBUG mode. Your IDE may be slow when saving or editing files.", "Debug");
-            } catch (Exception e) { }
-        }
+    private static void checkDebug() {
+        if (DEBUG_CHECKED) return;
+        DEBUG_CHECKED = true;
+        if (!DEBUG) return;
+        try {
+            Messages.showWarningDialog("Your IDE may respond slower. Disable debug mode from Tools -> WakaTime Settings.", "WakaTime Debug Mode Enabled");
+        } catch (Exception e) { }
     }
 
     public void disposeComponent() {
@@ -198,6 +195,11 @@ public class WakaTime implements ApplicationComponent {
     }
 
     public static void appendHeartbeat(final VirtualFile file, Project project, final boolean isWrite) {
+        checkDebug();
+        if (WakaTime.READY && project != null) {
+            StatusBar statusbar = WindowManager.getInstance().getStatusBar(project);
+            if (statusbar != null) statusbar.updateWidget("WakaTime");
+        }
         if (!shouldLogFile(file))
             return;
         final String projectName = project != null ? project.getName() : null;
@@ -360,7 +362,7 @@ public class WakaTime implements ApplicationComponent {
             cmds.add(heartbeat.project);
         }
         if (heartbeat.language != null) {
-            cmds.add("--language");
+            cmds.add("--alternate-language");
             cmds.add(heartbeat.language);
         }
         cmds.add("--plugin");
@@ -399,6 +401,20 @@ public class WakaTime implements ApplicationComponent {
         WakaTime.DEBUG = debug != null && debug.trim().equals("true");
     }
 
+    public static void setupStatusBar() {
+        String statusBarVal = ConfigFile.get("settings", "status_bar_enabled");
+        WakaTime.STATUS_BAR = statusBarVal == null || !statusBarVal.trim().equals("false");
+        if (WakaTime.READY) {
+            try {
+                Project project = ProjectManager.getInstance().getDefaultProject();
+                StatusBar statusbar = WindowManager.getInstance().getStatusBar(project);
+                if (statusbar != null) statusbar.updateWidget("WakaTime");
+            } catch (Exception e) {
+                log.warn(e);
+            }
+        }
+    }
+
     public static void setLoggingLevel() {
         if (WakaTime.DEBUG) {
             log.setLevel(Level.DEBUG);
@@ -414,6 +430,61 @@ public class WakaTime implements ApplicationComponent {
             return editors[0].getProject();
         }
         return null;
+    }
+
+    public static void openDashboardWebsite() {
+        BrowserUtil.browse("https://wakatime.com/dashboard");
+    }
+
+    private static String todayText = "";
+    private static BigDecimal todayTextTime = new BigDecimal(0);
+
+    public static String getTodayText() {
+        if (!WakaTime.READY) return todayText;
+        if (!WakaTime.STATUS_BAR) return "";
+        BigDecimal now = getCurrentTimestamp();
+        if (todayTextTime.add(new BigDecimal(60)).compareTo(now) > 0) return todayText;
+        todayTextTime = getCurrentTimestamp();
+
+        Project project;
+        try {
+            project = ProjectManager.getInstance().getDefaultProject();
+        } catch (Exception e) {
+            return todayText;
+        }
+
+        final String[] cmds = new String[]{Dependencies.getCLILocation(), "--today", "--key", ApiKey.getApiKey()};
+        log.debug("Executing CLI: " + Arrays.toString(obfuscateKey(cmds)));
+
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Updating wakatime status bar") {
+            public void run(@NotNull ProgressIndicator progressIndicator) {
+                progressIndicator.setIndeterminate(false);
+                try {
+                    Process proc = Runtime.getRuntime().exec(cmds);
+                    BufferedReader stdout = new BufferedReader(new
+                            InputStreamReader(proc.getInputStream()));
+                    BufferedReader stderr = new BufferedReader(new
+                            InputStreamReader(proc.getErrorStream()));
+                    proc.waitFor();
+                    ArrayList<String> output = new ArrayList<String>();
+                    String s;
+                    while ((s = stdout.readLine()) != null) {
+                        output.add(s);
+                    }
+                    while ((s = stderr.readLine()) != null) {
+                        output.add(s);
+                    }
+                    log.debug("Command finished with return value: " + proc.exitValue());
+                    todayText = " " + String.join("", output);
+                    todayTextTime = getCurrentTimestamp();
+                } catch (Exception e) {
+                    log.warn(e);
+                }
+                progressIndicator.setFraction(1.0);
+                progressIndicator.stop();
+            }
+        });
+        return todayText;
     }
 
     private static String obfuscateKey(String key) {

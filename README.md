@@ -2,20 +2,24 @@
 
 [![Coding time tracker](https://wakatime.com/badge/github/wakatime/jetbrains-wakatime.svg)](https://wakatime.com/badge/github/wakatime/jetbrains-wakatime)
 
-Metrics, insights, and time tracking automatically generated from your programming activity.
+[WakaTime][wakatime] is an open source Jetbrains plugin for metrics, insights, and time tracking automatically generated from your programming activity.
+
+Supports Jetbrains IDES:
+
+[Android Studio][android studio], [AppCode][appcode], [CLion][clion], [DataGrip][datagrip], [GoLand][goland], [IntelliJ IDEA][wakatime], [PhpStorm][phpstorm], [PyCharm][pycharm], [Rider][rider], [RubyMine][rubymine], & [WebStorm][webstorm].
 
 
 ## Installation
 
 ![install](./install.gif)
 
-1. Inside your IDE, select `Preferences` -> `Plugins` -> `Browse Repositories...`.
+1. Inside your IDE, select `Preferences` -> `Plugins`.
 
 2. Search for `WakaTime`.
 
-3. Click the green `Install Plugin` button.
+3. Click the green `Install` button.
 
-4. Click `Close` and `OK`, then Re-launch your IDE.
+4. Re-launch your IDE.
 
 5. Enter your [api key](https://wakatime.com/settings#apikey) in `Tools -> WakaTime API Key`, then click `Save`.
 
@@ -57,3 +61,15 @@ In that case, add this line to your `~/.wakatime.cfg` file:
 (`C:\Users\<user>\.wakatime.cfg` on Windows)
 
 For more general troubleshooting information, see [wakatime/wakatime#troubleshooting](https://github.com/wakatime/wakatime#troubleshooting).
+
+[wakatime]: https://wakatime.com/intellij-idea
+[android studio]: https://wakatime.com/android-studio
+[appcode]: https://wakatime.com/appcode
+[clion]: https://wakatime.com/clion
+[datagrip]: https://wakatime.com/datagrip
+[goland]: https://wakatime.com/goland
+[phpstorm]: https://wakatime.com/phpstorm
+[pycharm]: https://wakatime.com/pycharm
+[rider]: https://wakatime.com/rider
+[rubymine]: https://wakatime.com/rubymine
+[webstorm]: https://wakatime.com/webstorm
